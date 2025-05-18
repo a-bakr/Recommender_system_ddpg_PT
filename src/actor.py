@@ -29,12 +29,8 @@ class ActorNetwork(nn.Module):
     
 class Actor:
     
-    def __init__(self, 
-                 embedding_dim, 
-                 hidden_dim, 
-                 learning_rate, 
-                 tau):
-                
+    def __init__(self, embedding_dim, hidden_dim, learning_rate, tau):
+        
         self.embedding_dim = embedding_dim
         
         # Actor network and target network

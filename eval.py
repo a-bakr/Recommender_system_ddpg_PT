@@ -1,3 +1,16 @@
+"""
+Evaluation script for the Deep Reinforcement Learning based Recommender System.
+
+This script implements the offline evaluation of the trained recommender system.
+It evaluates the model's performance using precision@k and NDCG@k metrics.
+
+The evaluation process follows these steps:
+1. Load test dataset and create evaluation environment
+2. For each user in the test set:
+   - Generate recommendations using the trained policy
+   - Calculate precision and NDCG metrics
+3. Report average performance across all evaluated users
+"""
 
 import numpy as np
 import time
@@ -12,16 +25,36 @@ from src.loader import load_dataset, load_dataset_session
 import tensorflow as tf
 
 """
-[Evaluation 방식 - Offline Evaluation (Algorithm 2)]
-- eval_user_list에서 한명씩 평가진행
-- 각 time step마다, 학습된 policy로 action 취하고 item 추천 -> reward 관찰, state update되고 추천된 item은 추천가능 목록에서 제거
-- 한 user 당 몇번의 추천을 진행할지는 결정해야 할 듯 (Jupyter notebook에서는 한번만 하는 것으로 보이는데 알고리즘 상에는 T번해서 평균 내는 듯)
+[Evaluation Method - Offline Evaluation (Algorithm 2)]
+- Evaluate one by one from eval_user_list
+- At each time step, take action with the trained policy and recommend items -> observe reward, update state, and remove recommended items from recommendation list
+- Need to decide how many recommendations to make per user (In the Jupyter notebook it seems to do it once, but according to the algorithm it averages over T times)
 """
 
 ROOT_DIR = os.getcwd()
 DATA_DIR = os.path.join(ROOT_DIR, 'data/ml-1m/')
 
 def evaluate(recommender, env, args, check_movies: bool=False, top_k: int=1, length: int=1):
+    """
+    Evaluate the recommender system for a single user.
+    
+    This function runs the evaluation loop for one user, making recommendations
+    and calculating precision and NDCG metrics.
+    
+    Args:
+        recommender: Trained DRRAgent instance
+        env: OfflineEnv instance for evaluation
+        args: Command line arguments
+        check_movies (bool): Whether to print detailed movie information
+        top_k (int): Number of items to recommend at each step
+        length (int): Maximum number of recommendation steps
+        
+    Returns:
+        tuple: (mean_precision, mean_ndcg, mean_reward)
+            - mean_precision: Average precision@k
+            - mean_ndcg: Average NDCG@k
+            - mean_reward: Average reward per step
+    """
     mean_precision = 0
     mean_ndcg = 0
 
@@ -44,7 +77,6 @@ def evaluate(recommender, env, args, check_movies: bool=False, top_k: int=1, len
             user_eb, items_eb = recommender.embedding_network.get_embedding([tf_user_id, tf_items_ids])
             user_eb, items_eb = tf.reshape(user_eb, (1,args.dim_emb)).numpy(), items_eb.numpy()
             
-        # state = recommender.srm_ave(user_eb.unsqueeze(0), items_eb.unsqueeze(0))
         state = recommender.srm_ave([
             torch.tensor(user_eb, dtype=torch.float32),
             torch.tensor(items_eb, dtype=torch.float32).unsqueeze(0)
@@ -81,6 +113,18 @@ def evaluate(recommender, env, args, check_movies: bool=False, top_k: int=1, len
     return mean_precision/steps, mean_ndcg/steps, episode_reward/steps
 
 def calculate_ndcg(rel, irel):
+    """
+    Calculate NDCG (Normalized Discounted Cumulative Gain) metric.
+    
+    Args:
+        rel (list): List of relevance scores for recommended items
+        irel (list): List of ideal relevance scores
+        
+    Returns:
+        tuple: (dcg, idcg)
+            - dcg: Discounted Cumulative Gain
+            - idcg: Ideal Discounted Cumulative Gain
+    """
     dcg = 0
     idcg = 0
     rel = [1 if r > 0 else 0 for r in rel]
@@ -90,7 +134,35 @@ def calculate_ndcg(rel, irel):
     return dcg, idcg
 
 def evaluater(args):
+    """
+    Main evaluation function for the recommender system.
     
+    This function handles the complete evaluation pipeline:
+    1. Loads test dataset
+    2. Creates evaluation environment
+    3. Evaluates the model on test users
+    4. Reports average performance metrics
+    
+    Args:
+        args: Command line arguments containing evaluation parameters:
+            - state_size: Size of the state representation
+            - mode: Evaluation mode
+            - use_wandb: Whether to use Weights & Biases for logging
+            - dim_emb: Embedding dimension
+            - dim_actor: Actor network hidden dimension
+            - lr_actor: Actor learning rate
+            - dim_critic: Critic network hidden dimension
+            - lr_critic: Critic learning rate
+            - discount: Discount factor for future rewards
+            - tau: Target network update rate
+            - memory_size: Size of the replay buffer
+            - batch_size: Batch size for training
+            - epsilon: Exploration rate
+            - std: Standard deviation for exploration noise
+            - saved_actor: Path to saved actor model
+            - saved_critic: Path to saved critic model
+            - top_k: Number of top items to recommend
+    """
     total_users_num, total_items_num, eval_users_dict, users_history_lens, movies_id_to_movies = load_dataset_session(DATA_DIR, 'eval')
 
     sum_precision, sum_ndcg = 0, 0
@@ -103,12 +175,11 @@ def evaluater(args):
 
     for i, user_id in enumerate(avaiable_users):
         env = OfflineEnv(eval_users_dict, 
-                         users_history_lens, 
-                         movies_id_to_movies, 
-                         args.state_size, 
-                         fix_user_id=user_id)
+                            users_history_lens, 
+                            movies_id_to_movies, 
+                            args.state_size, 
+                            fix_user_id=user_id)
         
-            
         recommender = DRRAgent(env = env,
                             users_num = total_users_num,
                             items_num = total_items_num,
@@ -127,7 +198,7 @@ def evaluater(args):
                             epsilon = args.epsilon,
                             std = args.std,
                             args = args,
-                           )
+                            )
         
         recommender.eval()
         recommender.load_model(args.saved_actor, args.saved_critic)

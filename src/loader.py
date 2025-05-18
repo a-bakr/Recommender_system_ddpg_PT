@@ -4,14 +4,14 @@ import pandas as pd
 
 def load_dataset(data_dir: str, mode: str):
     """
-    DATA_DIR에 items.csv, final_user_dict.npy, final_users_history_len.npy 파일이 있어야 함
+    Requires files items.csv, final_user_dict.npy, final_users_history_len.npy in DATA_DIR
 
     return:
-    - users_num : train(eval)에 사용될 user의 수
-    - total_items_num : 전체 item의 수
-    - users_dict : {user_id: [movie1, movie2, ...]} 형태의 dict
-    - users_history_lens : 각 user의 history 길이(전체 user 대상)
-    - movies_id_to_movies : {movie_id: movie_title} 형태의 dict -> 데이터 없음, 사용 안함
+    - users_num : Number of users to be used for train(eval)
+    - total_items_num : Total number of items
+    - users_dict : Dictionary in the format {user_id: [movie1, movie2, ...]}
+    - users_history_lens : Length of history for each user (for all users)
+    - movies_id_to_movies : Dictionary in the format {movie_id: movie_title} -> No data, not used
     """
 
     assert mode in ['train', 'eval'], "mode should be either 'train' or 'eval'"
@@ -24,13 +24,13 @@ def load_dataset(data_dir: str, mode: str):
     print("Data loading complete!")
     print("Data preprocessing...")
 
-    # 영화 id를 영화 제목으로
+    # Map movie IDs to movie titles
     movies_id_to_movies = {movie[0]: movie[1:] for movie in movies_df.values}
 
-    # 유저별로 본 영화들 순서대로 정리
+    # Organize movies watched by each user in order
     users_dict = np.load(data_dir + 'final_user_dict.npy', allow_pickle=True)
 
-    # 각 유저별 영화 히스토리 길이
+    # Movie history length for each user
     users_history_lens = np.load(data_dir + 'final_users_history_len.npy')
 
     total_users_num = len(users_dict.item()) 
@@ -59,14 +59,14 @@ def load_dataset(data_dir: str, mode: str):
 
 def load_dataset_session(DATA_DIR: str, mode: str="train"):
     """
-    DATA_DIR에 items.csv, final_user_dict.npy, final_users_history_len.npy 파일이 있어야 함
+    Requires files items.csv, final_user_dict.npy, final_users_history_len.npy in DATA_DIR
 
     return:
-    - users_num : 전체user의 수
-    - total_items_num : 전체 item의 수
-    - users_dict : {user_id: [movie1, movie2, ...]} 형태의 dict
-    - users_history_lens : 각 user의 history 길이(전체 user 대상)
-    - movies_id_to_movies : {movie_id: movie_title} 형태의 dict -> 데이터 없음, 사용 안함
+    - users_num : Total number of users
+    - total_items_num : Total number of items
+    - users_dict : Dictionary in the format {user_id: [movie1, movie2, ...]}
+    - users_history_lens : Length of history for each user (for all users)
+    - movies_id_to_movies : Dictionary in the format {movie_id: movie_title} -> No data, not used
     """
 
     assert mode in ['train', 'eval'], "mode should be either 'train' or 'eval'"
@@ -79,17 +79,17 @@ def load_dataset_session(DATA_DIR: str, mode: str="train"):
     print("Data loading complete!")
     print("Data preprocessing...")
 
-    # 영화 id를 영화 제목으로
+    # Map movie IDs to movie titles
     movies_id_to_movies = {movie[0]: movie[1:] for movie in movies_df.values}
 
-    # 유저별로 본 영화들 순서대로 정리
+    # Organize movies watched by each user in order
     users_dict = np.load(DATA_DIR + 'final_user_dict.npy', allow_pickle=True)
 
     total_users_num = len(users_dict.item()) 
     total_items_num = len(movies_df)
     print(f"total users_num : {total_users_num}, total items_num : {total_items_num}")
 
-    # users_dict를 돌면서 history 앞에 20%는 eval, 나머지는 train으로 나누기
+    # Split user history: first 20% for eval, remaining 80% for training
     train_users_dict = {}
     eval_users_dict = {}
 

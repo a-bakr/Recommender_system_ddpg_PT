@@ -2,34 +2,66 @@ import numpy as np
 
 
 class OfflineEnv(object):
+    """
+    Offline environment for training and evaluating the recommender system.
+    
+    This environment simulates user-movie interactions in an offline setting, where
+    the agent recommends movies to users based on their viewing history. The environment
+    maintains state using the user's most recently watched movies and provides rewards
+    based on whether the recommended movies match the user's preferences.
+    
+    Attributes:
+        users_dict (dict): Maps user IDs to their movie watching history and ratings
+        users_history_lens (int): Length of viewing history for each user
+        items_id_to_name (dict): Maps movie IDs to their titles and genres
+        state_size (int): Number of recent movies to use for state representation
+        available_users (list): List of users with sufficient viewing history
+        user (int): Current user being served recommendations
+        user_items (dict): Current user's movie ratings
+        items (list): Current state - list of recent movie IDs
+        done (bool): Whether the episode is complete
+        recommended_items (set): Set of movies already recommended
+        done_count (int): Maximum trajectory length
+    """
     
     def __init__(self, 
-                users_dict: dict[int, list[tuple[int, int]]], # user_id : [(movie_id, rating), ...] -> 총 4832 user, id는 1부터 시작, 앞에 있는 movie가 최근에 본 movie
-                users_history_lens: int, # user_id 별 history 길이
-                movies_id_to_movies: dict[str, tuple[str, str]], # movie_id : (title, genre)
-                state_size, # N
-                fix_user_id=None):
-
+                users_dict: dict[int, list[tuple[int, int]]],
+                users_history_lens: int,
+                movies_id_to_movies: dict[str, tuple[str, str]],
+                state_size: int,
+                fix_user_id: int = None):
+        """
+        Initialize the offline environment.
+        
+        Args:
+            users_dict: Maps user IDs to lists of (movie_id, rating) tuples
+            users_history_lens: Length of viewing history for each user
+            movies_id_to_movies: Maps movie IDs to (title, genre) tuples
+            state_size: Number of recent movies to use for state
+            fix_user_id: Optional fixed user ID for evaluation
+        """
         self.users_dict = users_dict                    
         self.users_history_lens = users_history_lens    
         self.items_id_to_name = movies_id_to_movies     
         
-        self.state_size = state_size                    # state size = 10 : 최근에 본 movie의 개수 기준 설정 
-        self.available_users = self._generate_available_users() # 현재 추천가능한 user list 추리기
+        self.state_size = state_size                    
+        self.available_users = self._generate_available_users()
 
         self.fix_user_id = fix_user_id
 
-        self.user = fix_user_id if fix_user_id else np.random.choice(self.available_users)      # 이번 에피소드에서 movie를 추천할 user
-        self.user_items = {data[0]:data[1] for data in self.users_dict[self.user]}   # 해당 user가 본 {movie: rating}
-        self.items = [data[0] for data in self.users_dict[self.user][:self.state_size]]   # 해당 user의 history 중 최근 10개의 movie의 id
+        self.user = fix_user_id if fix_user_id else np.random.choice(self.available_users)
+        self.user_items = {data[0]:data[1] for data in self.users_dict[self.user]}
+        self.items = [data[0] for data in self.users_dict[self.user][:self.state_size]]
         self.done = False
-        self.recommended_items = set(self.items)      # 추천된 movie들의 id set
-        self.done_count = 3000                        # trajectory의 최대 길이
+        self.recommended_items = set(self.items)
+        self.done_count = 3000
         
-    def _generate_available_users(self):
+    def _generate_available_users(self) -> list[int]:
         """
-        self.state_size (10) 보다 긴 history를 가진 user 들만 available_users에 추가
-        episode가 진행될 수록 available user가 감소하는건 아닌건가? 그러면 불필요하게 한 user에 대해서 여러번 훈련될 수도 있나? 
+        Generate list of users with sufficient viewing history.
+        
+        Returns:
+            List of user IDs with history length greater than state_size
         """
         available_users = []
         for i, length in zip(self.users_dict.keys(), self.users_history_lens):
@@ -37,22 +69,33 @@ class OfflineEnv(object):
                 available_users.append(i)
         return available_users
     
-    def reset(self):
+    def reset(self) -> tuple[int, list[int], bool]:
         """
-        init 반복
+        Reset the environment for a new episode.
+        
+        Returns:
+            Tuple of (user_id, initial_state, done)
         """
         self.user = self.fix_user_id if self.fix_user_id else np.random.choice(self.available_users)
-        self.user_items = {data[0]:data[1] for data in self.users_dict[self.user]} # {movie : rating}
+        self.user_items = {data[0]:data[1] for data in self.users_dict[self.user]}
         self.items = [data[0] for data in self.users_dict[self.user][:self.state_size]]
         self.done = False
         self.recommended_items = set(self.items)
         return self.user, self.items, self.done
         
-    def step(self, action, top_k=False):
+    def step(self, action: int, top_k: bool = False) -> tuple[list[int], float, bool, set[int]]:
+        """
+        Take a step in the environment by recommending a movie.
         
+        Args:
+            action: Movie ID to recommend
+            top_k: Whether to use top-k recommendation mode
+            
+        Returns:
+            Tuple of (new_state, reward, done, recommended_items)
+        """
         reward = -0.5
 
-        # 일단 top_k 안함 
         if top_k:
             correctly_recommended = []
             rewards = []
@@ -69,29 +112,29 @@ class OfflineEnv(object):
             reward = rewards
 
         else:
-            # 추천한 movie가 user가 봤던 history에 있고, 최근 본 10개 중에 없다면.
             if action in self.user_items.keys() and action not in self.recommended_items:
-                reward = self.user_items[action] -3  # reward : rating이 1~5까지니까 4, 5인 경우에 + reward를 받게 됨
+                reward = self.user_items[action] - 3
             
-            # reward가 0 보다 크다면, 추천한 movie를 history에 추가 -> 이건 현재 episode에서만 반영됨 (user가 중복 학습 안된다고 하면 문제 없음)
-            # self.items: 지금은 10개가 순서 무관하게 동일하게 취급되지만, 최근꺼를 더 반영하는 식으로 수정가능할 듯
             if reward > 0:
                 self.items = self.items[1:] + [action]
             
-            # 추천받은 movie에 action 추가
             self.recommended_items.add(action)
 
-        # 추천받은 item개수(=trajectory 길이)가 done_count보다 크거나, 추천받은 item 개수가 user의 history 길이보다 크거나 같다면
-        # self.user -1 인 이유는 user id가 1부터 시작해서
-        # 추천받은 item 개수가 user의 history 길이보다 크거나 같은지는 왜 체크하지?
         if len(self.recommended_items) > self.done_count or len(self.recommended_items) >= self.users_history_lens[self.user-1]:
             self.done = True
             
-        # self.items : 이게 state가 만약 적절한 추천을 해줬다면 다음 self.items에 추가되었을 것이고 state만드는데 사용됨
         return self.items, reward, self.done, self.recommended_items
 
-    # 여기서 쓰이는 곳은 없음
-    def get_items_names(self, items_ids):
+    def get_items_names(self, items_ids: list[int]) -> list[list[str]]:
+        """
+        Get movie titles and genres for given movie IDs.
+        
+        Args:
+            items_ids: List of movie IDs to look up
+            
+        Returns:
+            List of [title, genre] pairs for each movie ID
+        """
         items_names = []
         for id in items_ids:
             try:

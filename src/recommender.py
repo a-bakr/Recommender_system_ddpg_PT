@@ -24,25 +24,25 @@ SAVE_DIR = os.path.join(ROOT_DIR, 'save_model')
 
 class DRRAgent:
     def __init__(self,
-                 env ,
-                 users_num: int,
-                 items_num: int, 
-                 state_size: int, 
-                 is_eval: bool, 
-                 use_wandb: bool,
-                 embedding_dim: int,
-                 actor_hidden_dim: int,
-                 actor_learning_rate: float,
-                 critic_hidden_dim: int,
-                 critic_learning_rate: float,
-                 discount: float,
-                 tau: float,
-                 memory_size: int,
-                 batch_size: int,
-                 epsilon: float,
-                 std: float,
-                 args
-                 ):
+                    env ,
+                    users_num: int,
+                    items_num: int, 
+                    state_size: int, 
+                    is_eval: bool, 
+                    use_wandb: bool,
+                    embedding_dim: int,
+                    actor_hidden_dim: int,
+                    actor_learning_rate: float,
+                    critic_hidden_dim: int,
+                    critic_learning_rate: float,
+                    discount: float,
+                    tau: float,
+                    memory_size: int,
+                    batch_size: int,
+                    epsilon: float,
+                    std: float,
+                    args
+                    ):
         
         self.env = env
         self.args = args
@@ -97,21 +97,21 @@ class DRRAgent:
         else :
             modality = tuple(args.modality.lower().split(','))
             id_embedding_network = UserMovieMultiModalEmbedding(users_num,
-                                                                  items_num,
-                                                                  self.embedding_dim//2,
-                                                                  None,
-                                                                  None,
-                                                                  None)
+                                                                    items_num,
+                                                                    self.embedding_dim//2,
+                                                                    None,
+                                                                    None,
+                                                                    None)
             
             id_embedding_network([np.array([0, 1]), np.array([0, 1])])
             id_embedding_network.load_weights(os.path.join(ROOT_DIR, 'save_weights', 'u_m_model_ID.h5'))
             
             mm_embedding_network = UserMovieMultiModalEmbedding(users_num,
-                                                                  items_num,
-                                                                  self.embedding_dim//2,
-                                                                  modality,
-                                                                  args.fusion,
-                                                                  args.aggregation)
+                                                                    items_num,
+                                                                    self.embedding_dim//2,
+                                                                    modality,
+                                                                    args.fusion,
+                                                                    args.aggregation)
             
             mm_embedding_network([np.array([0, 1]), np.array([0, 1])])
             mod_name = ''.join([mod[0] for mod in modality]).upper()
@@ -144,20 +144,20 @@ class DRRAgent:
         self.use_wandb = use_wandb
         if use_wandb:
             wandb.init(project="drr",
-                       entity="diominor",
-                       config={'users_num': users_num,
-                               'items_num': items_num,
-                               'state_size': state_size,
-                               'embedding_dim': self.embedding_dim,
-                               'actor_hidden_dim': self.actor_hidden_dim,
-                               'actor_learning_rate': self.actor_learning_rate,
-                               'critic_hidden_dim': self.critic_hidden_dim,
-                               'critic_learning_rate': self.critic_learning_rate,
-                               'discount_factor': self.discount_factor,
-                               'tau': self.tau,
-                               'replay_memory_size': self.replay_memory_size,
-                               'batch_size': self.batch_size,
-                               'std_for_exploration': self.std})
+                        entity="diominor",
+                        config={'users_num': users_num,
+                                'items_num': items_num,
+                                'state_size': state_size,
+                                'embedding_dim': self.embedding_dim,
+                                'actor_hidden_dim': self.actor_hidden_dim,
+                                'actor_learning_rate': self.actor_learning_rate,
+                                'critic_hidden_dim': self.critic_hidden_dim,
+                                'critic_learning_rate': self.critic_learning_rate,
+                                'discount_factor': self.discount_factor,
+                                'tau': self.tau,
+                                'replay_memory_size': self.replay_memory_size,
+                                'batch_size': self.batch_size,
+                                'std_for_exploration': self.std})
 
     def calculate_td_target(self, rewards, q_values, dones):
         y_t = np.copy(q_values)
@@ -177,8 +177,8 @@ class DRRAgent:
             items_ebs = self.embedding_network.m_embedding(torch.tensor(items_ids, dtype=torch.long)).to(self.device) 
         
         else :
-             _, items_ebs = self.embedding_network.get_embedding([np.zeros_like(items_ids), np.array(items_ids)])
-             items_ebs = torch.from_numpy(items_ebs.numpy()).to(self.device)
+            _, items_ebs = self.embedding_network.get_embedding([np.zeros_like(items_ids), np.array(items_ids)])
+            items_ebs = torch.from_numpy(items_ebs.numpy()).to(self.device)
         
         action = torch.transpose(action, 0, 1).to(self.device)
         
@@ -191,8 +191,8 @@ class DRRAgent:
             return items_ids[item_idx]
 
     def train(self, max_episode_num: int,
-              top_k: Optional[int] = False,
-              load_model: Optional[int] = False):
+                top_k: Optional[int] = False,
+                load_model: Optional[int] = False):
         
         # weight save directory
         self.save_model_weight_dir = SAVE_DIR + f"/train_{self.args.modality}_{self.args.fusion}_{self.args.aggregation}_session"
@@ -311,7 +311,7 @@ class DRRAgent:
                     td_targets = self.calculate_td_target(batch_rewards.cpu().numpy(), min_qs.detach().cpu().numpy(), batch_dones.cpu().numpy())
 
                     td_targets = torch.tensor(td_targets).to(self.device)
-                     
+                    
                     # Update priority
                     for (p, i) in zip(td_targets, index_batch):
                         self.buffer.update_priority(abs(p[0]) + self.epsilon_for_priority, i)
@@ -342,7 +342,7 @@ class DRRAgent:
                     print(f'{episode}/{max_episode_num}, precision : {precision:2}%, total_reward:{episode_reward}, q_loss : {q_loss/steps}, mean_action : {mean_action/steps}')
                     if self.use_wandb:
                         wandb.log({'precision': precision, 'total_reward': episode_reward,
-                                  'epsilon': self.epsilon, 'q_loss': q_loss / steps, 'mean_action': mean_action / steps})
+                                    'epsilon': self.epsilon, 'q_loss': q_loss / steps, 'mean_action': mean_action / steps})
                     episodic_precision_history.append(precision)
 
             if (episode + 1) % 50 == 0:

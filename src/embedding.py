@@ -1,3 +1,13 @@
+"""
+Embedding models for the recommender system.
+
+This module implements various embedding models for the recommender system:
+1. MovieGenreEmbedding: Handles movie-genre relationships
+2. UserMovieEmbedding: Manages user-movie interactions
+3. UserMovieMultiModalEmbedding: Incorporates multimodal features
+4. ConcatedEmbedding: Combines different embedding networks
+"""
+
 import torch
 import torch.nn as nn
 import tensorflow as tf
@@ -5,6 +15,18 @@ import os
 import numpy as np
 
 class MovieGenreEmbedding(nn.Module):
+    """
+    PyTorch model for embedding movie-genre relationships.
+    
+    This model learns embeddings for movies and genres, and computes their similarity
+    using cosine similarity. The output is passed through a fully connected layer
+    and sigmoid activation to predict movie-genre relationships.
+    
+    Args:
+        len_movies (int): Number of unique movies
+        len_genres (int): Number of unique genres
+        embedding_dim (int): Dimension of the embedding vectors
+    """
     def __init__(self, len_movies, len_genres, embedding_dim):
         super(MovieGenreEmbedding, self).__init__()
         
@@ -20,6 +42,15 @@ class MovieGenreEmbedding(nn.Module):
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, x):
+        """
+        Forward pass of the model.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, 2) containing movie and genre IDs
+            
+        Returns:
+            torch.Tensor: Predicted movie-genre relationship scores
+        """
         memb = self.m_embedding(x[:, 0])
         gemb = self.g_embedding(x[:, 1])
         m_g = self.m_g_merge(memb, gemb).unsqueeze(1)
@@ -27,6 +58,18 @@ class MovieGenreEmbedding(nn.Module):
         return self.sigmoid(self.m_g_fc(m_g))
 
 class UserMovieEmbedding(nn.Module):
+    """
+    PyTorch model for embedding user-movie interactions.
+    
+    This model implements a matrix factorization approach using embeddings for users
+    and movies. It computes the dot product of user and movie embeddings and passes
+    the result through a fully connected layer with sigmoid activation.
+    
+    Args:
+        len_users (int): Number of unique users
+        len_movies (int): Number of unique movies
+        embedding_dim (int): Dimension of the embedding vectors
+    """
     def __init__(self, len_users, len_movies, embedding_dim):
         super(UserMovieEmbedding, self).__init__()
         
@@ -42,24 +85,46 @@ class UserMovieEmbedding(nn.Module):
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, x):
+        """
+        Forward pass of the model.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, 2) containing user and movie IDs
+            
+        Returns:
+            torch.Tensor: Predicted user-movie interaction scores
+        """
         user_ids, movie_ids = x[:, 0], x[:, 1]
         
         uemb = self.u_embedding(user_ids)
         memb = self.m_embedding(movie_ids)
-        #uemb.shape = memb.shape = (batch_size, hidden_dim)
-        m_u = (uemb * memb).sum(dim=1, keepdim=True) # It is Matrix Factorization Model
+        m_u = (uemb * memb).sum(dim=1, keepdim=True) # Matrix Factorization Model
         
-        #m_u.shape = batch,1
         return torch.sigmoid(self.m_u_fc(m_u))
 
 class UserMovieMultiModalEmbedding(tf.keras.Model):
+    """
+    TensorFlow model for multimodal user-movie embeddings.
+    
+    This model incorporates multimodal features (video, audio, text) for movies
+    along with user embeddings. It supports different fusion strategies (early/late)
+    and aggregation methods (concatenation/mean).
+    
+    Args:
+        len_users (int): Number of unique users
+        len_movies (int): Number of unique movies
+        embedding_dim (int): Dimension of the embedding vectors
+        modality (tuple): Tuple of modalities to use ('video', 'audio', 'text')
+        fusion (str): Fusion strategy ('early' or 'late')
+        aggregation (str): Aggregation method ('concat' or 'mean')
+    """
     def __init__(self, 
-                 len_users, 
-                 len_movies, 
-                 embedding_dim, 
-                 modality=('video', 'audio', 'text'), 
-                 fusion='early', 
-                 aggregation='concat'):
+                    len_users, 
+                    len_movies, 
+                    embedding_dim, 
+                    modality=('video', 'audio', 'text'), 
+                    fusion='early', 
+                    aggregation='concat'):
         
         super(UserMovieMultiModalEmbedding, self).__init__()
         self.modality = modality
@@ -105,6 +170,15 @@ class UserMovieMultiModalEmbedding(tf.keras.Model):
         self.m_u_fc = tf.keras.layers.Dense(1, activation='sigmoid')
         
     def get_embedding(self, x):
+        """
+        Get user and movie embeddings.
+        
+        Args:
+            x (tf.Tensor): Input tensor containing user and movie IDs
+            
+        Returns:
+            tuple: (user_embedding, movie_embedding)
+        """
         x = self.m_u_input(x)
         uemb = self.u_embedding(x[0])
         
@@ -133,15 +207,44 @@ class UserMovieMultiModalEmbedding(tf.keras.Model):
         return uemb, memb
         
     def call(self, x):
+        """
+        Forward pass of the model.
+        
+        Args:
+            x (tf.Tensor): Input tensor containing user and movie IDs
+            
+        Returns:
+            tf.Tensor: Predicted user-movie interaction scores
+        """
         uemb, memb = self.get_embedding(x)
         m_u = self.m_u_merge([memb, uemb])
         return self.m_u_fc(m_u)
 
 class ConcatedEmbedding:
+    """
+    Combines different embedding networks.
+    
+    This class combines the outputs of an ID-based embedding network and a
+    multimodal embedding network by concatenating their embeddings.
+    
+    Args:
+        id_embedding_network: Network for ID-based embeddings
+        mm_embedding_network: Network for multimodal embeddings
+    """
     def __init__(self, id_embedding_network, mm_embedding_network):
         self.id_embedding_network = id_embedding_network
         self.mm_embedding_network = mm_embedding_network
+        
     def get_embedding(self, x):
+        """
+        Get combined embeddings from both networks.
+        
+        Args:
+            x (tf.Tensor): Input tensor containing user and movie IDs
+            
+        Returns:
+            tuple: (combined_user_embedding, combined_movie_embedding)
+        """
         id_uemb, id_memb = self.id_embedding_network.get_embedding(x)
         if self.mm_embedding_network:
             mm_uemb, mm_memb = self.mm_embedding_network.get_embedding(x)
