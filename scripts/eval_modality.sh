@@ -1,4 +1,4 @@
-gpu=0
+gpu=-1
 save_dir=./save_model/train_video,audio,text_early_concat_session
 
 CUDA_VISIBLE_DEVICES=$gpu python run.py \

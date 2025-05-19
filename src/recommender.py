@@ -1,3 +1,9 @@
+"""
+Deep Reinforcement Recommender (DRR) Agent implementation.
+This module implements a deep reinforcement learning agent for recommendation systems
+using actor-critic architecture with priority experience replay.
+"""
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -19,12 +25,24 @@ from typing import Sequence, Collection, AbstractSet, List, Optional, Tuple, Map
 
 import tensorflow as tf
 
+# Directory paths for saving models and weights
 ROOT_DIR = os.getcwd()
 SAVE_DIR = os.path.join(ROOT_DIR, 'save_model')
 
 class DRRAgent:
+    """
+    Deep Reinforcement Recommender Agent that uses actor-critic architecture
+    with priority experience replay for training.
+    
+    The agent learns to recommend items by:
+    1. Taking actions (recommending items) based on current state
+    2. Receiving rewards from the environment
+    3. Updating policy using actor-critic learning
+    4. Storing experiences in priority replay buffer
+    """
+    
     def __init__(self,
-                    env ,
+                    env,
                     users_num: int,
                     items_num: int, 
                     state_size: int, 
@@ -41,37 +59,63 @@ class DRRAgent:
                     batch_size: int,
                     epsilon: float,
                     std: float,
-                    args
-                    ):
+                    args):
+        """
+        Initialize the DRR agent with hyperparameters and networks.
+        
+        Args:
+            env: The recommendation environment
+            users_num: Number of users in the system
+            items_num: Number of items that can be recommended
+            state_size: Size of the state representation
+            is_eval: Whether agent is in evaluation mode
+            use_wandb: Whether to use Weights & Biases for logging
+            embedding_dim: Dimension of user/item embeddings
+            actor_hidden_dim: Hidden layer size for actor network
+            actor_learning_rate: Learning rate for actor network
+            critic_hidden_dim: Hidden layer size for critic network  
+            critic_learning_rate: Learning rate for critic network
+            discount: Discount factor for future rewards
+            tau: Soft update parameter for target networks
+            memory_size: Size of replay memory
+            batch_size: Batch size for training
+            epsilon: Initial exploration rate
+            std: Standard deviation for exploration noise
+            args: Additional arguments
+        """
         
         self.env = env
         self.args = args
+        
+        # Set device (CPU/GPU)
         if args.gpu == -1:
             self.device = torch.device('cpu')
-        else :
+        else:
             self.device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() else 'cpu')
         
         print(f'[DEVICE] Using {self.device}')
         
+        # Store basic parameters
         self.users_num = users_num
         self.items_num = items_num
         self.state_size = state_size
+        self.embedding_dim = embedding_dim
         
-        self.embedding_dim = embedding_dim        
-        # actor network hyperparameters
+        # Actor network parameters
         self.actor_hidden_dim = actor_hidden_dim
         self.actor_learning_rate = actor_learning_rate
         
-        # critic network hyperparameters
+        # Critic network parameters  
         self.critic_hidden_dim = critic_hidden_dim
         self.critic_learning_rate = critic_learning_rate
         
+        # RL parameters
         self.discount_factor = discount
         self.tau = tau
-
         self.replay_memory_size = memory_size
         self.batch_size = batch_size
 
+        # Initialize actor and critic networks
         self.actor = Actor(
             embedding_dim = self.embedding_dim,
             hidden_dim = self.actor_hidden_dim,
@@ -84,8 +128,9 @@ class DRRAgent:
             learning_rate = self.critic_learning_rate,
             tau = self.tau)
         
-    
+        # Initialize embedding network based on modality
         if not args.modality:
+            # Single modality embedding
             self.embedding_network = UserMovieEmbedding(users_num, items_num, self.embedding_dim)
             embedding_save_file_dir = ROOT_DIR + '/save_weights/user_movie_embedding_case4.pth'
             embedding_network_checkpoint = torch.load(embedding_save_file_dir)
@@ -94,24 +139,20 @@ class DRRAgent:
             self.embedding_network.eval()
             print('[Embedding] UserMovieEmbedding is loaded')
         
-        else :
+        else:
+            # Multi-modal embedding
             modality = tuple(args.modality.lower().split(','))
-            id_embedding_network = UserMovieMultiModalEmbedding(users_num,
-                                                                    items_num,
-                                                                    self.embedding_dim//2,
-                                                                    None,
-                                                                    None,
-                                                                    None)
+            
+            # ID embedding network
+            id_embedding_network = UserMovieMultiModalEmbedding(
+                users_num, items_num, self.embedding_dim//2, None, None, None)
             
             id_embedding_network([np.array([0, 1]), np.array([0, 1])])
             id_embedding_network.load_weights(os.path.join(ROOT_DIR, 'save_weights', 'u_m_model_ID.h5'))
             
-            mm_embedding_network = UserMovieMultiModalEmbedding(users_num,
-                                                                    items_num,
-                                                                    self.embedding_dim//2,
-                                                                    modality,
-                                                                    args.fusion,
-                                                                    args.aggregation)
+            # Multi-modal embedding network
+            mm_embedding_network = UserMovieMultiModalEmbedding(
+                users_num, items_num, self.embedding_dim//2, modality, args.fusion, args.aggregation)
             
             mm_embedding_network([np.array([0, 1]), np.array([0, 1])])
             mod_name = ''.join([mod[0] for mod in modality]).upper()
@@ -119,28 +160,30 @@ class DRRAgent:
             
             mm_embedding_network.load_weights(os.path.join(ROOT_DIR, 'save_weights', f'u_m_model_{weights_name}.h5'))
             
+            # Combine embeddings
             self.embedding_network = ConcatedEmbedding(id_embedding_network, mm_embedding_network)
             
             print('[Embedding] UserMovieMultiModalEmbedding is loaded')
             
         time.sleep(2)
         
+        # Initialize state representation network
         self.srm_ave = DRRAveStateRepresentation(embedding_dim = self.embedding_dim, state_size = self.state_size)
         self.srm_ave.eval()
         
-        # PER
+        # Initialize priority experience replay buffer
         self.buffer = PriorityExperienceReplay(
             self.replay_memory_size, self.embedding_dim)
         self.epsilon_for_priority = 1e-6
 
-        # ε-greedy exploration hyperparameter
+        # Exploration parameters
         self.epsilon = epsilon
         self.epsilon_decay = (self.epsilon - 0.1) /500000
         self.std = std
 
         self.is_eval = is_eval
 
-        # wandb
+        # Initialize wandb logging if enabled
         self.use_wandb = use_wandb
         if use_wandb:
             wandb.init(project="drr",
@@ -160,6 +203,17 @@ class DRRAgent:
                                 'std_for_exploration': self.std})
 
     def calculate_td_target(self, rewards, q_values, dones):
+        """
+        Calculate TD targets for critic network update.
+        
+        Args:
+            rewards: Batch of rewards
+            q_values: Batch of Q-values
+            dones: Batch of done flags
+            
+        Returns:
+            TD targets for critic update
+        """
         y_t = np.copy(q_values)
         
         for i in range(q_values.shape[0]):
@@ -169,7 +223,15 @@ class DRRAgent:
         return y_t
 
     def recommend_item(self, action, recommended_items, top_k=False, items_ids=None):
+        """
+        Recommend items based on action scores.
         
+        Args:
+            action: Action scores from actor network
+            recommended_items: Set of already recommended items
+            top_k: Whether to return top-k recommendations
+            items_ids: Specific items to consider for recommendation
+        """
         if items_ids is None:
             items_ids = np.array(list(set(i for i in range(self.items_num)) - recommended_items))
         
